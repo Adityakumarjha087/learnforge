@@ -26,7 +26,10 @@ export function TutorChat({ sessionId, history, compact }: { sessionId: string; 
   const endRef = useRef<HTMLDivElement>(null);
   const busy = status === "submitted" || status === "streaming";
 
-  useEffect(() => endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [messages]);
+  useEffect(() => {
+    // Block body on purpose: modern browsers return a Promise from scrollIntoView, and an effect must not return one.
+    void endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages]);
 
   const send = (text: string) => {
     const t = text.trim();

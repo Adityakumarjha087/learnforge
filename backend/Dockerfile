@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY frontend/package.json frontend/
-RUN npm ci -w backend --include-workspace-root --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci -w backend --include-workspace-root --no-audit --no-fund
 COPY backend backend
 RUN npx prisma generate --schema backend/prisma/schema.prisma \
  && npm run build -w backend \

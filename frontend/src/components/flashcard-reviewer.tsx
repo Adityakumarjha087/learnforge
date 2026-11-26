@@ -21,7 +21,9 @@ const BUTTONS: { rating: Rating; label: string; key: "again" | "hard" | "good" |
 /** One-card-at-a-time FSRS review. Keyboard: Space reveals, 1-4 rate. */
 export function FlashcardReviewer({ card, onRate, busy }: { card: ReviewCardView; onRate: (rating: Rating) => void; busy?: boolean }) {
   const [revealed, setRevealed] = useState(false);
-  useEffect(() => setRevealed(false), [card.id]);
+  useEffect(() => {
+    setRevealed(false);
+  }, [card.id]);
 
   const rate = useCallback((r: Rating) => !busy && revealed && onRate(r), [busy, revealed, onRate]);
   useEffect(() => {
