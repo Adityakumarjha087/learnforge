@@ -6,7 +6,7 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/
 COPY frontend/package.json frontend/
-RUN --mount=type=cache,target=/root/.npm npm ci -w backend --include-workspace-root --no-audit --no-fund
+RUN --mount=type=cache,target=/root/.npm npm ci -w backend --include-workspace-root --no-audit --no-fund --prefer-offline --fetch-retries=6 --fetch-retry-mintimeout=20000 --fetch-retry-maxtimeout=180000
 COPY backend backend
 RUN npx prisma generate --schema backend/prisma/schema.prisma \
  && npm run build -w backend \

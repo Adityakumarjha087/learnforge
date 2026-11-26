@@ -1,0 +1,2038 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "LearnForge API",
+    "version": "1.0.0",
+    "description": "Adaptive learning platform API. Business logic is exposed via tRPC (documented below); auth, uploads, streaming and webhooks are REST."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "cookieAuth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "lf_access"
+      },
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    }
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Liveness/readiness (DB + Redis)",
+        "responses": {
+          "200": {
+            "description": "Healthy"
+          },
+          "503": {
+            "description": "Degraded"
+          }
+        }
+      }
+    },
+    "/api/auth/register": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Register with email + password (sets httpOnly access/refresh cookies)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "password",
+                  "name"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 8
+                  },
+                  "name": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "enum": [
+                      "LEARNER",
+                      "INSTRUCTOR"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session created"
+          },
+          "409": {
+            "description": "Email taken"
+          }
+        }
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Credentials login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "email",
+                  "password"
+                ],
+                "properties": {
+                  "email": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Session created"
+          },
+          "401": {
+            "description": "Invalid credentials"
+          }
+        }
+      }
+    },
+    "/api/auth/magic-link": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Request an email magic link (dev: delivered to /api/auth/dev/mailbox)",
+        "responses": {
+          "200": {
+            "description": "Sent"
+          }
+        }
+      }
+    },
+    "/api/auth/magic-link/verify": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Exchange a magic-link token for a session",
+        "responses": {
+          "200": {
+            "description": "Session created"
+          }
+        }
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Rotate the refresh token (reuse detection revokes the token family)",
+        "responses": {
+          "200": {
+            "description": "Rotated"
+          }
+        }
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Revoke the refresh token and clear cookies",
+        "responses": {
+          "200": {
+            "description": "Signed out"
+          }
+        }
+      }
+    },
+    "/api/auth/session": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Current user (or null)",
+        "responses": {
+          "200": {
+            "description": "Session"
+          }
+        }
+      }
+    },
+    "/api/auth/dev/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Dev only: one-click demo login by email",
+        "responses": {
+          "200": {
+            "description": "Session created"
+          }
+        }
+      }
+    },
+    "/api/auth/dev/mailbox": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Dev only: read the local email outbox",
+        "parameters": [
+          {
+            "name": "email",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Messages"
+          }
+        }
+      }
+    },
+    "/api/auth/oauth/{provider}": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Start Google/GitHub OAuth",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "enum": [
+                "google",
+                "github"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Redirect"
+          }
+        }
+      }
+    },
+    "/api/uploads": {
+      "post": {
+        "tags": [
+          "content"
+        ],
+        "summary": "Upload a PDF/notes file (multipart field `file`) for course generation",
+        "responses": {
+          "200": {
+            "description": "Document created"
+          }
+        }
+      }
+    },
+    "/api/tutor/chat": {
+      "post": {
+        "tags": [
+          "tutor"
+        ],
+        "summary": "Stream a Socratic tutor reply (text/plain stream, AI SDK text transport compatible)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "sessionId"
+                ],
+                "properties": {
+                  "sessionId": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Streamed text"
+          }
+        }
+      }
+    },
+    "/api/billing/webhook": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "summary": "Stripe webhook (signature verified)",
+        "responses": {
+          "200": {
+            "description": "Processed"
+          },
+          "400": {
+            "description": "Bad signature"
+          }
+        }
+      }
+    },
+    "/api/trpc/billing.cancel": {
+      "post": {
+        "tags": [
+          "trpc:billing"
+        ],
+        "operationId": "billing.cancel",
+        "summary": "tRPC mutation `billing.cancel`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        }
+      }
+    },
+    "/api/trpc/billing.checkout": {
+      "post": {
+        "tags": [
+          "trpc:billing"
+        ],
+        "operationId": "billing.checkout",
+        "summary": "tRPC mutation `billing.checkout`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        }
+      }
+    },
+    "/api/trpc/billing.mock": {
+      "post": {
+        "tags": [
+          "trpc:billing"
+        ],
+        "operationId": "billing.mock",
+        "summary": "tRPC mutation `billing.mock`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "checkout",
+                      "payment_failed",
+                      "payment_succeeded",
+                      "cancel",
+                      "resume",
+                      "delete"
+                    ]
+                  }
+                },
+                "required": [
+                  "action"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/billing.status": {
+      "get": {
+        "tags": [
+          "trpc:billing"
+        ],
+        "operationId": "billing.status",
+        "summary": "tRPC query `billing.status`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/code.get": {
+      "get": {
+        "tags": [
+          "trpc:code"
+        ],
+        "operationId": "code.get",
+        "summary": "tRPC query `code.get`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/code.list": {
+      "get": {
+        "tags": [
+          "trpc:code"
+        ],
+        "operationId": "code.list",
+        "summary": "tRPC query `code.list`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "courseId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "courseId"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/code.run": {
+      "post": {
+        "tags": [
+          "trpc:code"
+        ],
+        "operationId": "code.run",
+        "summary": "tRPC mutation `code.run`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 20000
+                  }
+                },
+                "required": [
+                  "id",
+                  "code"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.addLesson": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.addLesson",
+        "summary": "tRPC mutation `course.addLesson`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "moduleId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "moduleId",
+                  "title"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.catalog": {
+      "get": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.catalog",
+        "summary": "tRPC query `course.catalog`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "search": {
+                      "type": "string",
+                      "maxLength": 100
+                    },
+                    "cursor": {
+                      "type": "string"
+                    },
+                    "take": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 50
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/course.completeLesson": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.completeLesson",
+        "summary": "tRPC mutation `course.completeLesson`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "lessonId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "lessonId"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.delete": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.delete",
+        "summary": "tRPC mutation `course.delete`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.enroll": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.enroll",
+        "summary": "tRPC mutation `course.enroll`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.generate": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.generate",
+        "summary": "tRPC mutation `course.generate`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "topic": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 200
+                  },
+                  "level": {
+                    "default": 2,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "documentId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "moduleCount": {
+                    "default": 3,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  }
+                },
+                "required": [
+                  "topic"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.get": {
+      "get": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.get",
+        "summary": "tRPC query `course.get`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/course.lesson": {
+      "get": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.lesson",
+        "summary": "tRPC query `course.lesson`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/course.mine": {
+      "get": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.mine",
+        "summary": "tRPC query `course.mine`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/course.publish": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.publish",
+        "summary": "tRPC mutation `course.publish`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "published": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "id",
+                  "published"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.update": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.update",
+        "summary": "tRPC mutation `course.update`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 160
+                  },
+                  "description": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 1000
+                  },
+                  "level": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/course.updateLesson": {
+      "post": {
+        "tags": [
+          "trpc:course"
+        ],
+        "operationId": "course.updateLesson",
+        "summary": "tRPC mutation `course.updateLesson`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "title": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  },
+                  "content": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100000
+                  },
+                  "difficulty": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  }
+                },
+                "required": [
+                  "id"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/flashcard.queue": {
+      "get": {
+        "tags": [
+          "trpc:flashcard"
+        ],
+        "operationId": "flashcard.queue",
+        "summary": "tRPC query `flashcard.queue`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "courseId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": 1,
+                      "maximum": 100
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/flashcard.review": {
+      "post": {
+        "tags": [
+          "trpc:flashcard"
+        ],
+        "operationId": "flashcard.review",
+        "summary": "tRPC mutation `flashcard.review`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "flashcardId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "rating": {
+                    "anyOf": [
+                      {
+                        "type": "number",
+                        "const": 1
+                      },
+                      {
+                        "type": "number",
+                        "const": 2
+                      },
+                      {
+                        "type": "number",
+                        "const": 3
+                      },
+                      {
+                        "type": "number",
+                        "const": 4
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "flashcardId",
+                  "rating"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/flashcard.stats": {
+      "get": {
+        "tags": [
+          "trpc:flashcard"
+        ],
+        "operationId": "flashcard.stats",
+        "summary": "tRPC query `flashcard.stats`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/gamification.battles": {
+      "get": {
+        "tags": [
+          "trpc:gamification"
+        ],
+        "operationId": "gamification.battles",
+        "summary": "tRPC query `gamification.battles`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/gamification.leaderboard": {
+      "get": {
+        "tags": [
+          "trpc:gamification"
+        ],
+        "operationId": "gamification.leaderboard",
+        "summary": "tRPC query `gamification.leaderboard`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "period": {
+                      "default": "week",
+                      "type": "string",
+                      "enum": [
+                        "week",
+                        "all"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/instructor.analytics": {
+      "get": {
+        "tags": [
+          "trpc:instructor"
+        ],
+        "operationId": "instructor.analytics",
+        "summary": "tRPC query `instructor.analytics`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "courseId": {
+                      "type": "string",
+                      "minLength": 1
+                    }
+                  },
+                  "required": [
+                    "courseId"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/instructor.overview": {
+      "get": {
+        "tags": [
+          "trpc:instructor"
+        ],
+        "operationId": "instructor.overview",
+        "summary": "tRPC query `instructor.overview`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/mastery.course": {
+      "get": {
+        "tags": [
+          "trpc:mastery"
+        ],
+        "operationId": "mastery.course",
+        "summary": "tRPC query `mastery.course`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "courseId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "courseId"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/me.dashboard": {
+      "get": {
+        "tags": [
+          "trpc:me"
+        ],
+        "operationId": "me.dashboard",
+        "summary": "tRPC query `me.dashboard`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/me.get": {
+      "get": {
+        "tags": [
+          "trpc:me"
+        ],
+        "operationId": "me.get",
+        "summary": "tRPC query `me.get`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/me.socketToken": {
+      "get": {
+        "tags": [
+          "trpc:me"
+        ],
+        "operationId": "me.socketToken",
+        "summary": "tRPC query `me.socketToken`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/me.usage": {
+      "get": {
+        "tags": [
+          "trpc:me"
+        ],
+        "operationId": "me.usage",
+        "summary": "tRPC query `me.usage`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/quiz.adaptive": {
+      "post": {
+        "tags": [
+          "trpc:quiz"
+        ],
+        "operationId": "quiz.adaptive",
+        "summary": "tRPC mutation `quiz.adaptive`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "lessonId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "lessonId"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/quiz.forCourse": {
+      "get": {
+        "tags": [
+          "trpc:quiz"
+        ],
+        "operationId": "quiz.forCourse",
+        "summary": "tRPC query `quiz.forCourse`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "courseId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "courseId"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/quiz.generate": {
+      "post": {
+        "tags": [
+          "trpc:quiz"
+        ],
+        "operationId": "quiz.generate",
+        "summary": "tRPC mutation `quiz.generate`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "lessonId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "difficulty": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 3,
+                    "maximum": 10
+                  }
+                },
+                "required": [
+                  "lessonId"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/quiz.get": {
+      "get": {
+        "tags": [
+          "trpc:quiz"
+        ],
+        "operationId": "quiz.get",
+        "summary": "tRPC query `quiz.get`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "id"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/quiz.history": {
+      "get": {
+        "tags": [
+          "trpc:quiz"
+        ],
+        "operationId": "quiz.history",
+        "summary": "tRPC query `quiz.history`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/quiz.setStatus": {
+      "post": {
+        "tags": [
+          "trpc:quiz"
+        ],
+        "operationId": "quiz.setStatus",
+        "summary": "tRPC mutation `quiz.setStatus`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "PUBLISHED",
+                      "REJECTED",
+                      "DRAFT"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "status"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/quiz.submit": {
+      "post": {
+        "tags": [
+          "trpc:quiz"
+        ],
+        "operationId": "quiz.submit",
+        "summary": "tRPC mutation `quiz.submit`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "answers": {
+                    "maxItems": 30,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "questionId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 64
+                        },
+                        "answer": {
+                          "type": "string",
+                          "maxLength": 20000
+                        }
+                      },
+                      "required": [
+                        "questionId",
+                        "answer"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "answers"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/system.config": {
+      "get": {
+        "tags": [
+          "trpc:system"
+        ],
+        "operationId": "system.config",
+        "summary": "tRPC query `system.config`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/api/trpc/tutor.createSession": {
+      "post": {
+        "tags": [
+          "trpc:tutor"
+        ],
+        "operationId": "tutor.createSession",
+        "summary": "tRPC mutation `tutor.createSession`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "courseId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  },
+                  "lessonId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 64
+                  }
+                },
+                "required": [
+                  "courseId"
+                ]
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trpc/tutor.messages": {
+      "get": {
+        "tags": [
+          "trpc:tutor"
+        ],
+        "operationId": "tutor.messages",
+        "summary": "tRPC query `tutor.messages`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "sessionId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  },
+                  "required": [
+                    "sessionId"
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      }
+    },
+    "/api/trpc/tutor.sessions": {
+      "get": {
+        "tags": [
+          "trpc:tutor"
+        ],
+        "operationId": "tutor.sessions",
+        "summary": "tRPC query `tutor.sessions`",
+        "security": [
+          {
+            "cookieAuth": []
+          },
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "tRPC result envelope `{ result: { data: { json } } }` (superjson)"
+          }
+        },
+        "parameters": [
+          {
+            "name": "input",
+            "in": "query",
+            "description": "superjson-encoded input, e.g. {\"json\":{...}}",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "courseId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 64
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
