@@ -91,11 +91,28 @@ sequenceDiagram
 
 ## Screenshots
 
-> _Placeholders — add screenshots after running the stack locally._
->
-> | Dashboard | Lesson + Socratic tutor | Adaptive quiz result | FSRS review | Quiz battle | Instructor analytics |
-> |---|---|---|---|---|---|
-> | `docs/screenshots/dashboard.png` | `docs/screenshots/lesson.png` | `docs/screenshots/quiz.png` | `docs/screenshots/review.png` | `docs/screenshots/battle.png` | `docs/screenshots/instructor.png` |
+Captured from the Docker stack with demo data via [`scripts/screenshots.mjs`](scripts/screenshots.mjs) (1440×900).
+
+![Course page](docs/screenshots/course.png)
+*Course page: syllabus with per-lesson difficulty, adaptive "next lesson" recommendation and BKT concept mastery.*
+
+![Lesson with KaTeX and Socratic tutor](docs/screenshots/lesson-tutor.png)
+*Lesson with KaTeX math beside the streamed Socratic tutor, which declines to give the answer and offers a grounded hint instead.*
+
+![Adaptive quiz feedback](docs/screenshots/quiz-feedback.png)
+*Adaptive quiz after submission: score, per-question feedback, mastery change and the next target difficulty.*
+
+![FSRS flashcard review](docs/screenshots/flashcard-review.png)
+*Daily FSRS review: revealed answer with the interval each rating would schedule.*
+
+![Coding exercise](docs/screenshots/coding-exercise.png)
+*Coding exercise run in the QuickJS-WASM sandbox: per-test results and an AI hint for the off-by-one bug.*
+
+![Instructor analytics](docs/screenshots/instructor-analytics.png)
+*Instructor analytics: lesson completion, weakest concepts across learners and the hardest questions.*
+
+![Dashboard in dark mode](docs/screenshots/dashboard-dark.png)
+*Learner dashboard in dark mode: level, XP, streak, due cards, plan usage and badges.*
 
 ## Local setup
 
