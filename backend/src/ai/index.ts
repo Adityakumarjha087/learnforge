@@ -18,22 +18,54 @@ export class AiService {
     readonly judge: LLMProvider = provider,
   ) {}
 
-  async run<K extends Task>(task: K, input: TaskIO[K]["input"]): Promise<TaskIO[K]["output"]> {
+  /**
+   * Run a structured task. Output is repaired when possible (JSON inside a string / code fence) and validated;
+   * on failure the call is retried with the validation errors appended, then fails with a clean domain error.
+   */
+  async run<K extends Task>(task: K, input: TaskIO[K]["input"], maxAttempts = 2): Promise<TaskIO[K]["output"]> {
     const started = performance.now();
     const llm = task === "judge" ? this.judge : this.provider;
-    const raw = await llm.generate(task, input, buildPrompt(task, input));
-    const parsed = TASK_SCHEMAS[task].safeParse(raw);
-    const ms = Math.round(performance.now() - started);
-    if (!parsed.success) {
-      logger.warn({ task, provider: llm.name, issues: parsed.error.issues.slice(0, 5) }, "llm output failed schema validation");
-      throw new AppError("UNPROCESSABLE", `AI output for ${task} failed validation`, parsed.error.issues.slice(0, 5));
+    const base = buildPrompt(task, input);
+    let lastIssues: unknown = null;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      const prompt =
+        attempt === 1 ? base : { ...base, prompt: `${base.prompt}\n\nYour previous response was invalid (${JSON.stringify(lastIssues).slice(0, 800)}). Return ONLY JSON that matches the schema.` };
+      let raw: unknown;
+      try {
+        raw = repairJson(await llm.generate(task, input, prompt));
+      } catch (err) {
+        if (err instanceof AppError && err.code !== "UNPROCESSABLE") throw err;
+        lastIssues = (err as Error).message;
+        logger.warn({ task, provider: llm.name, attempt, err: lastIssues }, "llm generation failed");
+        continue;
+      }
+      const parsed = TASK_SCHEMAS[task].safeParse(raw);
+      if (parsed.success) {
+        logger.debug({ task, provider: llm.name, model: llm.model, attempt, ms: Math.round(performance.now() - started) }, "llm task complete");
+        return parsed.data;
+      }
+      lastIssues = parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`);
+      logger.warn({ task, provider: llm.name, attempt, issues: lastIssues }, "llm output failed schema validation");
     }
-    logger.debug({ task, provider: llm.name, model: llm.model, ms }, "llm task complete");
-    return parsed.data;
+    throw new AppError("UNPROCESSABLE", `The AI returned an invalid ${task} after ${maxAttempts} attempts. Please try again.`, lastIssues);
   }
 
   streamTutor(input: TutorInput, signal?: AbortSignal): AsyncIterable<string> {
     return this.provider.streamChat(buildTutorSystem(input), input, signal);
+  }
+}
+
+/** Accept JSON delivered as a string (optionally wrapped in a Markdown code fence); otherwise pass through. */
+export function repairJson(raw: unknown): unknown {
+  if (typeof raw !== "string") return raw;
+  const fenced = raw.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const candidate = (fenced?.[1] ?? raw).trim();
+  const start = candidate.search(/[[{]/);
+  if (start === -1) throw new AppError("UNPROCESSABLE", "Model output contained no JSON");
+  try {
+    return JSON.parse(candidate.slice(start));
+  } catch {
+    throw new AppError("UNPROCESSABLE", "Model output was not valid JSON");
   }
 }
 

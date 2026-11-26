@@ -4,7 +4,7 @@ import { signAccessToken } from "../../src/auth/tokens";
 import { caller, createUser, getApp, prisma, resetDb, seedCourse, useFakeAi } from "../helpers";
 import { TEST_WEBHOOK_SECRET } from "../env";
 
-const stripe = new Stripe(["sk", "test", "fixture"].join("_"));
+const stripe = Stripe;
 
 function signed(event: Record<string, unknown>) {
   const payload = JSON.stringify(event);

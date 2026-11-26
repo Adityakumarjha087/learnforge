@@ -141,3 +141,91 @@ describe("Socket.IO quiz battles", () => {
     expect((await err2).message).toMatch(/not found/);
   });
 });
+
+describe("battle resilience: reconnects, forfeits and simultaneous answers", () => {
+  const app = Fastify();
+  let manager: BattleManager;
+  let url: string;
+  const sockets: Socket[] = [];
+  const client = async (u: AuthUser) => {
+    const s = connect(url, { auth: { token: await signSocketToken(u) }, transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(s);
+    await once(s, "connect");
+    return s;
+  };
+
+  beforeAll(async () => {
+    useFakeAi();
+    if ((await prisma.question.count()) === 0) {
+      const { lessons, instructor } = await seedCourse();
+      await caller(instructor).quiz.generate({ lessonId: lessons[0]!.id, difficulty: 2, count: 5 });
+    }
+    await app.listen({ port: 0, host: "127.0.0.1" });
+    manager = new BattleManager(app.server, prisma, ["*"], { perQuestionMs: 5000, botDelayScale: 50, reconnectGraceMs: 400, queueTimeoutMs: 2000 });
+    url = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  });
+
+  afterAll(async () => {
+    sockets.forEach((s) => s.disconnect());
+    await manager.close();
+    await app.close();
+  });
+
+  it("a player who reconnects within the grace period resumes the battle", async () => {
+    const u = await createUser();
+    const a = await client(u);
+    const start = once<{ battleId: string }>(a, "battle:start");
+    a.emit("queue:join", { vsBot: true });
+    const { battleId } = await start;
+    const fb = once(a, "battle:feedback");
+    a.emit("battle:answer", { battleId, index: 0, answer: "x" });
+    await fb;
+    a.disconnect();
+    // Register the listener before the handshake completes: the server emits `battle:resume` on connect.
+    const b = connect(url, { auth: { token: await signSocketToken(u) }, transports: ["websocket"], forceNew: true, reconnection: false });
+    sockets.push(b);
+    const resumed = await once<{ battleId: string; answered: number }>(b, "battle:resume");
+    expect(resumed).toMatchObject({ battleId, answered: 1 });
+    await new Promise((r) => setTimeout(r, 600)); // past the grace window: must NOT have been forfeited
+    expect((await prisma.battle.findUniqueOrThrow({ where: { id: battleId } })).status).toBe("ACTIVE");
+    b.disconnect();
+  });
+
+  it("a player who does not come back forfeits to the opponent", async () => {
+    const [ua, ub] = [await createUser(), await createUser()];
+    const a = await client(ua);
+    const b = await client(ub);
+    a.emit("queue:join", {});
+    await once(a, "queue:waiting");
+    const startB = once<{ battleId: string }>(b, "battle:start");
+    b.emit("queue:join", {});
+    const { battleId } = await startB;
+    const warned = once<{ userId: string }>(b, "battle:opponent-disconnected");
+    const ended = once<{ winnerId: string; status: string }>(b, "battle:end");
+    a.disconnect();
+    expect((await warned).userId).toBe(ua.id);
+    expect(await ended).toMatchObject({ winnerId: ub.id, status: "ABANDONED" });
+    expect((await prisma.battle.findUniqueOrThrow({ where: { id: battleId } })).winnerId).toBe(ub.id);
+    b.disconnect();
+  });
+
+  it("simultaneous answers are both scored and duplicates are rejected", async () => {
+    const [ua, ub] = [await createUser(), await createUser()];
+    const a = await client(ua);
+    const b = await client(ub);
+    a.emit("queue:join", {});
+    await once(a, "queue:waiting");
+    const startA = once<{ battleId: string }>(a, "battle:start");
+    b.emit("queue:join", {});
+    const { battleId } = await startA;
+    const [fa, fbk] = [once(a, "battle:feedback"), once(b, "battle:feedback")];
+    a.emit("battle:answer", { battleId, index: 0, answer: "true" });
+    b.emit("battle:answer", { battleId, index: 0, answer: "true" });
+    await Promise.all([fa, fbk]);
+    const dup = once<{ message: string }>(a, "battle:error");
+    a.emit("battle:answer", { battleId, index: 0, answer: "true" });
+    expect((await dup).message).toMatch(/in order/);
+    a.disconnect();
+    b.disconnect();
+  });
+});

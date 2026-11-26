@@ -60,8 +60,11 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(`Invalid environment configuration: ${issues}`);
   }
   const env = parsed.data;
-  if (env.NODE_ENV === "production" && env.JWT_SECRET.startsWith("dev-only")) {
-    throw new Error("JWT_SECRET must be set in production");
+  if (env.NODE_ENV === "production" && (env.JWT_SECRET.startsWith("dev-only") || env.JWT_SECRET.length < 24)) {
+    throw new Error("JWT_SECRET must be set to a strong value (>= 24 chars) in production");
+  }
+  if (env.BILLING_MODE === "stripe" && (!env.STRIPE_SECRET_KEY || !env.STRIPE_WEBHOOK_SECRET || !env.STRIPE_PRICE_PRO)) {
+    throw new Error("BILLING_MODE=stripe requires STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET and STRIPE_PRICE_PRO");
   }
   return env;
 }

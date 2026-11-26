@@ -64,6 +64,16 @@ export default function BattlePage() {
         setPhase("playing");
         setStartedAt(Date.now());
       });
+      s.on("battle:resume", (b: BattleStart & { answered: number; scores: Record<string, number> }) => {
+        setBattle(b);
+        setIndex(b.answered);
+        setScores(b.scores);
+        setFeedback(null);
+        setPhase("playing");
+        setStartedAt(Date.now());
+        setMessage("Reconnected - continuing your battle.");
+      });
+      s.on("battle:opponent-disconnected", (m: { graceMs: number }) => setMessage(`Your opponent disconnected. They have ${Math.round(m.graceMs / 1000)}s to reconnect before forfeiting.`));
       s.on("battle:progress", (p: { userId: string; index: number; scores: Record<string, number> }) => {
         setScores(p.scores);
         setProgress((prev) => ({ ...prev, [p.userId]: p.index + 1 }));

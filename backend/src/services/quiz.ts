@@ -178,7 +178,9 @@ export async function getQuiz(db: Db, user: AuthUser, quizId: string) {
   };
 }
 
-const norm = (s: string) => s.trim().toLowerCase().replace(/\s+/g, " ");
+/** Unicode-normalised, case/whitespace-insensitive comparison key. */
+export const norm = (s: string) => s.normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+const MAX_GRADED_CHARS = 4000;
 
 export interface GradedResponse {
   questionId: string;
@@ -199,11 +201,13 @@ async function gradeOne(q: Question & { exercise: { entrypoint: string; tests: P
     }
     case "SHORT_ANSWER": {
       const keyPoints = ((q.rubric as { keyPoints?: string[] } | null)?.keyPoints ?? []).filter(Boolean);
-      const grade = await ai().run("grade", { question: q.prompt, modelAnswer: q.answer, keyPoints, response: answer });
+      if (!answer.trim()) return { ...base, correct: false, score: 0, feedback: "No answer was given.", correctAnswer: q.answer };
+      const grade = await ai().run("grade", { question: q.prompt, modelAnswer: q.answer, keyPoints, response: answer.normalize("NFKC").slice(0, MAX_GRADED_CHARS) });
       return { ...base, correct: grade.correct, score: grade.score, feedback: grade.feedback, correctAnswer: q.answer };
     }
     case "CODE": {
       if (!q.exercise) return { ...base, correct: false, score: 0, feedback: "Exercise is missing", correctAnswer: null };
+      if (!answer.trim()) return { ...base, correct: false, score: 0, feedback: "No code was submitted.", correctAnswer: null };
       const tests = q.exercise.tests as unknown as TestCase[];
       const run = await getSandbox().run("javascript", answer, q.exercise.entrypoint, tests);
       const passed = run.results.filter((r) => r.passed).length;

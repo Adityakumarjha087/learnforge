@@ -28,6 +28,8 @@ export interface BattleManagerOptions {
   botAccuracy?: number;
   botDelayScale?: number;
   random?: () => number;
+  /** How long a disconnected player may take to reconnect before forfeiting. */
+  reconnectGraceMs?: number;
 }
 
 /** Real-time 1v1 quiz battles over Socket.IO: matchmaking queue, authoritative scoring, practice bot. */
@@ -36,6 +38,7 @@ export class BattleManager {
   private readonly queue: Waiting[] = [];
   private readonly battles = new Map<string, Battle>();
   private readonly timers = new Map<string, NodeJS.Timeout[]>();
+  private readonly forfeits = new Map<string, NodeJS.Timeout>();
 
   constructor(
     httpServer: HttpServer,
@@ -54,8 +57,32 @@ export class BattleManager {
     this.io.on("connection", (socket) => this.onConnection(socket));
   }
 
+  private activeBattleFor(userId: string): Battle | undefined {
+    return [...this.battles.values()].find((b) => !b.finished && b.players.some((p) => p.userId === userId));
+  }
+
+  /** A player who reconnects during the grace window rejoins their battle where they left off. */
+  private resume(socket: Socket, user: AuthUser) {
+    const battle = this.activeBattleFor(user.id);
+    if (!battle) return;
+    const key = `${battle.id}:${user.id}`;
+    clearTimeout(this.forfeits.get(key));
+    this.forfeits.delete(key);
+    void socket.join(`battle:${battle.id}`);
+    const opponent = battle.players.find((p) => p.userId !== user.id)!;
+    socket.emit("battle:resume", {
+      battleId: battle.id,
+      opponent: { id: opponent.userId, name: opponent.name, isBot: opponent.isBot },
+      questions: battle.publicQuestions(),
+      perQuestionMs: battle.perQuestionMs,
+      answered: battle.answers.get(user.id)?.length ?? 0,
+      scores: battle.scores(),
+    });
+  }
+
   private onConnection(socket: Socket) {
     const user = socket.data.user as AuthUser;
+    this.resume(socket, user);
     socket.on("queue:join", (payload: unknown) => {
       const parsed = JoinSchema.safeParse(payload ?? {});
       if (!parsed.success) return socket.emit("battle:error", { message: "Invalid request" });
@@ -69,12 +96,18 @@ export class BattleManager {
     });
     socket.on("disconnect", () => {
       this.leaveQueue(socket.id);
-      for (const b of this.battles.values()) {
-        if (!b.finished && b.players.some((p) => p.userId === user.id)) {
+      const b = this.activeBattleFor(user.id);
+      if (!b) return;
+      const key = `${b.id}:${user.id}`;
+      this.io.to(`battle:${b.id}`).emit("battle:opponent-disconnected", { userId: user.id, graceMs: this.opts.reconnectGraceMs ?? 10_000 });
+      this.forfeits.set(
+        key,
+        setTimeout(() => {
+          this.forfeits.delete(key);
           const other = b.players.find((p) => p.userId !== user.id);
           void this.finish(b, other && !other.isBot ? other.userId : undefined, "ABANDONED");
-        }
-      }
+        }, this.opts.reconnectGraceMs ?? 10_000),
+      );
     });
   }
 
@@ -93,6 +126,7 @@ export class BattleManager {
 
   private async join(socket: Socket, user: AuthUser, req: z.infer<typeof JoinSchema>) {
     this.leaveQueue(socket.id);
+    if (this.activeBattleFor(user.id)) return this.resume(socket, user); // one battle at a time
     if (req.vsBot) return this.start(req.courseId, [{ socket, user }], true);
     const match = this.queue.find((w) => w.user.id !== user.id && (w.courseId ?? null) === (req.courseId ?? null));
     if (match) {
@@ -198,6 +232,7 @@ export class BattleManager {
   async close() {
     for (const ts of this.timers.values()) ts.forEach(clearTimeout);
     for (const w of this.queue) clearTimeout(w.timer);
+    for (const f of this.forfeits.values()) clearTimeout(f);
     await new Promise<void>((resolve) => this.io.close(() => resolve()));
   }
 }

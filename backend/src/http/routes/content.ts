@@ -1,14 +1,13 @@
 import { Readable } from "node:stream";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { mapStripeEvent } from "../../billing/stripe";
 import { applyBillingEvent } from "../../billing/service";
-import { stripe } from "../../billing/stripe";
+import { mapStripeEvent, verifyWebhook } from "../../billing/stripe";
 import { env } from "../../config/env";
 import { AppError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { prisma } from "../../lib/prisma";
-import { extractUploadText } from "../../rag/ingest";
+import { extractUploadText, sanitizeMaterial } from "../../rag/ingest";
 import { tutorTurn } from "../../services/tutor";
 import { userFromRequest } from "../../trpc/trpc";
 
@@ -36,9 +35,10 @@ export async function contentRoutes(app: FastifyInstance) {
     const file = await req.file();
     if (!file) throw new AppError("BAD_REQUEST", "Attach a file in the `file` field");
     const buffer = await file.toBuffer();
-    const text = await extractUploadText(buffer, file.mimetype, file.filename);
+    const { text, flagged } = sanitizeMaterial(await extractUploadText(buffer, file.mimetype, file.filename));
+    if (flagged) req.log.warn({ flagged, userId: user.id }, "removed prompt-injection lines from upload");
     const doc = await prisma.document.create({ data: { ownerId: user.id, filename: file.filename.slice(0, 200), mimeType: file.mimetype, text } });
-    return { documentId: doc.id, filename: doc.filename, characters: text.length, preview: text.slice(0, 400) };
+    return { documentId: doc.id, filename: doc.filename, characters: text.length, preview: text.slice(0, 400), flaggedLines: flagged };
   });
 
   app.post("/tutor/chat", { config: { rateLimit: { max: 30, timeWindow: "1 minute" } } }, async (req, reply) => {
@@ -69,7 +69,7 @@ export async function contentRoutes(app: FastifyInstance) {
       if (typeof signature !== "string") throw new AppError("BAD_REQUEST", "Missing stripe-signature header");
       let event;
       try {
-        event = stripe().webhooks.constructEvent(req.body as Buffer, signature, secret);
+        event = verifyWebhook(req.body as Buffer, signature, secret);
       } catch (err) {
         logger.warn({ err: (err as Error).message }, "stripe signature verification failed");
         throw new AppError("BAD_REQUEST", "Invalid webhook signature");

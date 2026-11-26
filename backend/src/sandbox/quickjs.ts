@@ -3,6 +3,7 @@ import { finalize, type CodeRunner, type RunResult, type TestCase } from "./type
 
 
 const IDENT = /^[A-Za-z_$][\w$]*$/;
+export const MAX_LOG_LINES = 200;
 
 /**
  * In-process sandbox: JavaScript runs inside the QuickJS engine compiled to WebAssembly. Code has no access
@@ -36,7 +37,7 @@ export class QuickJsRunner implements CodeRunner {
     try {
       const consoleObj = vm.newObject();
       const logFn = vm.newFunction("log", (...args) => {
-        if (logs.length < 200) logs.push(args.map((a) => String(vm.dump(a))).join(" ").slice(0, 500));
+        if (logs.length < MAX_LOG_LINES) logs.push(args.map((a) => String(vm.dump(a))).join(" ").slice(0, 500));
       });
       vm.setProp(consoleObj, "log", logFn);
       vm.setProp(vm.global, "console", consoleObj);
@@ -71,7 +72,8 @@ export class QuickJsRunner implements CodeRunner {
           fatal = formatError(vm.dump(res.error));
           res.error.dispose();
         } else {
-          raw = JSON.parse(String(vm.dump(res.value)));
+          const dumped = vm.dump(res.value);
+          raw = typeof dumped === "string" ? JSON.parse(dumped) : tests.map(() => ({ actual: null, error: "Harness tampered with" }));
           res.value.dispose();
         }
       }

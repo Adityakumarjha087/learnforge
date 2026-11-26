@@ -1,14 +1,21 @@
 import Stripe from "stripe";
 import { env } from "../config/env";
+import { AppError } from "../lib/errors";
 import { fromStripeStatus, type BillingSignal } from "./state-machine";
 
 let client: Stripe | undefined;
-/** Non-functional key used only for offline webhook verification (assembled at runtime; never a real credential). */
-const OFFLINE_KEY = ["sk", "test", "offline-verification-only"].join("_");
+
+/** Stripe API client - only available when a real STRIPE_SECRET_KEY is configured (otherwise billing runs in mock mode). */
 export function stripe(): Stripe {
-  // Webhook signature verification is offline; a placeholder key is enough when only verifying.
-  client ??= new Stripe(env().STRIPE_SECRET_KEY || OFFLINE_KEY);
+  const key = env().STRIPE_SECRET_KEY;
+  if (!key) throw new AppError("INTERNAL", "Stripe is not configured (set STRIPE_SECRET_KEY or use BILLING_MODE=mock)");
+  client ??= new Stripe(key);
   return client;
+}
+
+/** Offline webhook signature verification; needs only the webhook signing secret, never an API key. */
+export function verifyWebhook(payload: Buffer | string, signature: string, secret: string): Stripe.Event {
+  return Stripe.webhooks.constructEvent(payload, signature, secret);
 }
 
 const toDate = (sec: unknown): Date | null => (typeof sec === "number" ? new Date(sec * 1000) : null);

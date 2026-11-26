@@ -4,6 +4,21 @@ import { badRequest } from "../lib/errors";
 export const SUPPORTED_MIME = ["application/pdf", "text/plain", "text/markdown", "text/x-markdown"] as const;
 
 /** Extract plain text from an uploaded PDF or notes file. */
+const INJECTION_LINE = /(ignore (all |any )?(previous|prior|above) (instructions|prompts?)|disregard (all |the )?(previous|above) |you are (now )?(chatgpt|an? (ai|assistant|llm))|system prompt|<\/?(system|instructions?)>|reveal (the )?(answer key|solutions?))/i;
+
+/** Remove lines that look like prompt-injection attempts from untrusted uploaded material. */
+export function sanitizeMaterial(text: string): { text: string; flagged: number } {
+  let flagged = 0;
+  const kept = text.split("\n").filter((line) => {
+    if (INJECTION_LINE.test(line)) {
+      flagged++;
+      return false;
+    }
+    return true;
+  });
+  return { text: kept.join("\n"), flagged };
+}
+
 export async function extractUploadText(buffer: Buffer, mimeType: string, filename: string): Promise<string> {
   const isPdf = mimeType === "application/pdf" || filename.toLowerCase().endsWith(".pdf");
   const isText = mimeType.startsWith("text/") || /\.(md|markdown|txt)$/i.test(filename);

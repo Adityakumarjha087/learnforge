@@ -10,6 +10,7 @@ import type { Db } from "../lib/prisma";
 import { observe } from "./mastery";
 
 const NEW_CARDS_PER_DAY = 20;
+export const DUPLICATE_WINDOW_MS = 2000;
 const DAY = 86_400_000;
 
 export type SrsAlgorithm = "fsrs" | "sm2";
@@ -51,7 +52,9 @@ async function ensureCards(db: Db, userId: string, courseId?: string) {
   const introducedToday = await db.reviewCard.count({ where: { userId, createdAt: { gte: startOfDay } } });
   const budget = Math.max(0, NEW_CARDS_PER_DAY - introducedToday);
   if (budget === 0) return;
-  const courseIds = courseId ? [courseId] : (await db.enrollment.findMany({ where: { userId }, select: { courseId: true } })).map((e) => e.courseId);
+  // Only courses the learner is enrolled in (prevents materialising cards from arbitrary course ids).
+  const enrolled = (await db.enrollment.findMany({ where: { userId, ...(courseId ? { courseId } : {}) }, select: { courseId: true } })).map((e) => e.courseId);
+  const courseIds = enrolled;
   const fresh = await db.flashcard.findMany({
     where: { courseId: { in: courseIds }, reviews: { none: { userId } } },
     orderBy: { createdAt: "asc" },
@@ -95,6 +98,10 @@ export async function dueQueue(db: Db, user: AuthUser, opts: { courseId?: string
 export async function reviewCard(db: Db, user: AuthUser, flashcardId: string, rating: Rating, now = new Date()) {
   const card = await db.reviewCard.findUnique({ where: { userId_flashcardId: { userId: user.id, flashcardId } }, include: { flashcard: true } });
   if (!card) throw notFound("Review card");
+  // Idempotency: a double-click / retried request within the window must not apply the review twice.
+  if (card.lastReview && Math.abs(now.getTime() - card.lastReview.getTime()) < DUPLICATE_WINDOW_MS) {
+    return { due: card.due, scheduledDays: card.scheduledDays, state: card.state, award: null, duplicate: true as const };
+  }
   let next: SrsCard;
   let elapsedDays = card.lastReview ? (now.getTime() - card.lastReview.getTime()) / DAY : 0;
   if (srsAlgorithm() === "sm2") {
@@ -136,7 +143,7 @@ export async function reviewCard(db: Db, user: AuthUser, flashcardId: string, ra
     await observe(db, user.id, card.flashcard.conceptId, { correct: rating >= 3, score: rating >= 3 ? 1 : 0, type: "SHORT_ANSWER" });
   }
   const award = await awardXp(db, user.id, XP.flashcardReview, "flashcard-review", now);
-  return { due: next.due, scheduledDays: next.scheduledDays, state: next.state, award };
+  return { due: next.due, scheduledDays: next.scheduledDays, state: next.state, award, duplicate: false as const };
 }
 
 export async function reviewStats(db: Db, user: AuthUser) {

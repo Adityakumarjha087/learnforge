@@ -2,6 +2,7 @@ import { contentTokens, keywords, splitSentences, truncate } from "../../../lib/
 import type { TutorInput } from "../../types";
 
 const ASKS_FOR_ANSWER = /\b(just tell me|give me the answer|what('?s| is) the answer|solve (it|this) for me|full solution|do my homework)\b/i;
+const INJECTION = /\b(ignore (all |any )?(previous|prior|above|your) (instructions|rules)|system prompt|you are now|developer mode|jailbreak|disregard (the|your) (rules|instructions)|reveal (the )?(answer|solution))/i;
 const MATHY = /(\$|\d\s*[-+*/^=]\s*\d|\bequation|\bsolve\b|\bderivative|\bintegral|\bx\s*=)/i;
 const REQUEST_WORDS = new Set(["tell", "answer", "explain", "give", "help", "please", "just", "mean", "means", "does", "know", "understand", "solve", "show", "work"]);
 const focusTerm = (text: string) => contentTokens(text).find((t) => !REQUEST_WORDS.has(t));
@@ -37,7 +38,9 @@ export function fakeTutorReply(input: TutorInput): string {
   const key = sentence ? (keywords(sentence, 6).find((k) => !qTokens.has(k)) ?? keywords(sentence, 1)[0]) : undefined;
   const lines: string[] = [];
 
-  if (ASKS_FOR_ANSWER.test(last)) {
+  if (INJECTION.test(last)) {
+    lines.push("Nice try 🙂 - I'm here to help you *learn*, so I'll stick to guiding you with questions rather than handing over answers.");
+  } else if (ASKS_FOR_ANSWER.test(last)) {
     lines.push("I won't hand you the answer - you'll remember it far better if you get there yourself. Let's work it out together.");
   } else {
     lines.push("Good question! Let's reason through it step by step rather than jumping to the answer.");

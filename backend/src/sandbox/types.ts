@@ -48,9 +48,13 @@ function canonical(v: unknown): string {
   return JSON.stringify(v);
 }
 
+export const MAX_ACTUAL_CHARS = 2000;
+const cap = (s: string | null, n: number) => (s && s.length > n ? `${s.slice(0, n)}…[truncated]` : s);
+
 export function finalize(raw: { actual: string | null; error: string | null }[], tests: TestCase[]): TestResult[] {
   return tests.map((t, index) => {
     const r = raw[index] ?? { actual: null, error: "Test did not run" };
-    return { index, args: t.args, expected: t.expected, actual: r.actual, error: r.error, passed: !r.error && jsonEqual(r.actual, t.expected) };
+    const passed = !r.error && jsonEqual(r.actual, t.expected);
+    return { index, args: t.args, expected: t.expected, actual: cap(r.actual, MAX_ACTUAL_CHARS), error: cap(r.error, 500), passed };
   });
 }
