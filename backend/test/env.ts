@@ -1,5 +1,5 @@
 // Shared test environment (imported by global setup and per-file setup).
-export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://learnforge:learnforge@localhost:21010/learnforge_test";
+export const TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? "postgresql://learnforge:learnforge@localhost:21010/learnforge_test?connect_timeout=30&pool_timeout=30";
 import { randomBytes } from "node:crypto";
 
 // Generated per test run (inherited by workers via process.env) so no secret-shaped literal lives in git.
