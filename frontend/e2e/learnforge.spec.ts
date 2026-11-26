@@ -2,11 +2,17 @@ import { expect, test } from "@playwright/test";
 
 test.describe.configure({ mode: "serial" });
 
-test("learner journey: sign in, generate a course, study, quiz, review and ask the tutor", async ({ page }) => {
+test("learner journey: register, generate a course, study, quiz, review and ask the tutor", async ({ page }) => {
+  // A fresh account per run keeps the test independent of quota/XP state left by earlier runs.
+  const email = `e2e-${Date.now()}-${Math.floor(Math.random() * 1e6)}@learnforge.dev`;
   await page.goto("/login");
-  await page.getByRole("button", { name: "Learner (Alex)" }).click();
+  await page.getByRole("tab", { name: "Register" }).click();
+  await page.locator("#r-name").fill("Casey Tester");
+  await page.locator("#r-email").fill(email);
+  await page.locator("#r-password").fill("e2e-password-123");
+  await page.getByRole("button", { name: "Create account" }).click();
   await expect(page).toHaveURL(/\/dashboard/);
-  await expect(page.getByRole("heading", { name: /Welcome back, Alex/ })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Welcome back, Casey/ })).toBeVisible();
 
   // Generate a course from a topic.
   await page.getByRole("link", { name: "New course" }).first().click();
@@ -37,7 +43,7 @@ test("learner journey: sign in, generate a course, study, quiz, review and ask t
   await expect(page.getByTestId("quiz-score")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/Next quiz will adapt to/)).toBeVisible();
 
-  // Flashcard review with FSRS.
+  // Flashcard review with FSRS (cards from the freshly generated course).
   await page.getByRole("link", { name: "Review", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Daily review" })).toBeVisible();
   await page.getByRole("button", { name: /show answer/i }).click();
