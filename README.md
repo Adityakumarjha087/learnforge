@@ -190,7 +190,7 @@ All variables are documented in [`.env.example`](.env.example); the most importa
 
 - **Make the LLM a replaceable, validated dependency.** Every AI task goes through one facade that
   builds prompts, validates output with Zod, repairs/retries once and fails with a clean 422. The
-  deterministic fake provider made the whole product — seed data, 150+ tests, CI, e2e — runnable without
+  deterministic fake provider made the whole product — seed data, 167 unit/integration/component tests, CI, e2e — runnable without
   keys, and it deliberately injects wrong answer keys so the quality gate is exercised, not assumed.
 - **Trust, but verify generated content.** A quiz only ships after an LLM-as-judge review, deterministic
   grounding checks and executing each code question's reference solution in the sandbox.
