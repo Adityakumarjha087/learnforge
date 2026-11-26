@@ -1,0 +1,526 @@
+// LearnForge data model.
+// pgvector embeddings are stored in `Chunk.embedding` (vector(256)) and accessed with raw SQL.
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x", "linux-musl-arm64-openssl-3.0.x"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+enum Role {
+  LEARNER
+  INSTRUCTOR
+  ADMIN
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CourseSource {
+  TOPIC
+  UPLOAD
+  MANUAL
+}
+
+enum QuizStatus {
+  DRAFT
+  PUBLISHED
+  REJECTED
+}
+
+enum QuestionType {
+  MCQ
+  TRUE_FALSE
+  SHORT_ANSWER
+  CODE
+}
+
+enum CardState {
+  NEW
+  LEARNING
+  REVIEW
+  RELEARNING
+}
+
+enum SubscriptionStatus {
+  NONE
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum BattleStatus {
+  ACTIVE
+  FINISHED
+  ABANDONED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  name          String
+  image         String?
+  passwordHash  String?
+  role          Role      @default(LEARNER)
+  xp            Int       @default(0)
+  streakDays    Int       @default(0)
+  longestStreak Int       @default(0)
+  lastActiveAt  DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  accounts      Account[]
+  refreshTokens RefreshToken[]
+  courses       Course[]          @relation("CourseAuthor")
+  enrollments   Enrollment[]
+  lessonProgress LessonProgress[]
+  attempts      QuizAttempt[]
+  reviewCards   ReviewCard[]
+  reviewLogs    ReviewLog[]
+  mastery       ConceptMastery[]
+  tutorSessions TutorSession[]
+  submissions   CodeSubmission[]
+  badges        UserBadge[]
+  xpEvents      XpEvent[]
+  subscription  Subscription?
+  usage         UsageRecord[]
+  documents     Document[]
+  battlesA      Battle[]          @relation("BattlePlayerA")
+  battlesB      Battle[]          @relation("BattlePlayerB")
+}
+
+model Account {
+  id                String   @id @default(cuid())
+  userId            String
+  provider          String
+  providerAccountId String
+  createdAt         DateTime @default(now())
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model RefreshToken {
+  id         String    @id @default(cuid())
+  userId     String
+  tokenHash  String    @unique
+  familyId   String
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedBy String?
+  createdAt  DateTime  @default(now())
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([familyId])
+}
+
+model MagicLinkToken {
+  id        String    @id @default(cuid())
+  email     String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+}
+
+/// Local "outbox" used instead of SMTP in development (magic links land here).
+model DevMail {
+  id        String   @id @default(cuid())
+  to        String
+  subject   String
+  body      String
+  link      String?
+  createdAt DateTime @default(now())
+
+  @@index([to, createdAt])
+}
+
+model Course {
+  id          String       @id @default(cuid())
+  slug        String       @unique
+  title       String
+  description String
+  topic       String
+  level       Int          @default(2)
+  status      CourseStatus @default(DRAFT)
+  source      CourseSource @default(TOPIC)
+  authorId    String
+  publishedAt DateTime?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  author      User         @relation("CourseAuthor", fields: [authorId], references: [id], onDelete: Cascade)
+  modules     Module[]
+  concepts    Concept[]
+  quizzes     Quiz[]
+  flashcards  Flashcard[]
+  exercises   CodeExercise[]
+  enrollments Enrollment[]
+  documents   Document[]
+  chunks      Chunk[]
+  tutorSessions TutorSession[]
+
+  @@index([status])
+}
+
+model Module {
+  id       String   @id @default(cuid())
+  courseId String
+  title    String
+  summary  String
+  order    Int
+  course   Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons  Lesson[]
+
+  @@index([courseId, order])
+}
+
+model Concept {
+  id          String   @id @default(cuid())
+  courseId    String
+  key         String
+  name        String
+  description String
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons     Lesson[]
+  questions   Question[]
+  flashcards  Flashcard[]
+  mastery     ConceptMastery[]
+
+  @@unique([courseId, key])
+}
+
+model Lesson {
+  id         String   @id @default(cuid())
+  moduleId   String
+  conceptId  String?
+  title      String
+  content    String
+  order      Int
+  difficulty Int      @default(2)
+  minutes    Int      @default(10)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  module     Module   @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  concept    Concept? @relation(fields: [conceptId], references: [id], onDelete: SetNull)
+  quizzes    Quiz[]
+  progress   LessonProgress[]
+  exercises  CodeExercise[]
+
+  @@index([moduleId, order])
+}
+
+model Enrollment {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+}
+
+model LessonProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  lessonId    String
+  completedAt DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lesson      Lesson   @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, lessonId])
+}
+
+model Document {
+  id        String   @id @default(cuid())
+  ownerId   String
+  courseId  String?
+  filename  String
+  mimeType  String
+  text      String
+  createdAt DateTime @default(now())
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  course    Course?  @relation(fields: [courseId], references: [id], onDelete: SetNull)
+  chunks    Chunk[]
+}
+
+model Chunk {
+  id         String                      @id @default(cuid())
+  courseId   String
+  documentId String?
+  lessonId   String?
+  content    String
+  ordinal    Int
+  embedding  Unsupported("vector(256)")?
+  createdAt  DateTime                    @default(now())
+  course     Course                      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  document   Document?                   @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([courseId])
+}
+
+model Quiz {
+  id          String     @id @default(cuid())
+  courseId    String
+  lessonId    String?
+  title       String
+  difficulty  Int        @default(2)
+  status      QuizStatus @default(DRAFT)
+  judgeReport Json?
+  createdById String?
+  createdAt   DateTime   @default(now())
+  course      Course     @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lesson      Lesson?    @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  questions   Question[]
+  attempts    QuizAttempt[]
+
+  @@index([courseId, status])
+}
+
+model Question {
+  id          String       @id @default(cuid())
+  quizId      String
+  conceptId   String?
+  type        QuestionType
+  prompt      String
+  options     Json?
+  answer      String
+  explanation String
+  rubric      Json?
+  /// Elo-style difficulty rating (1000 = average).
+  rating      Float        @default(1000)
+  order       Int
+  exerciseId  String?
+  quiz        Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  concept     Concept?     @relation(fields: [conceptId], references: [id], onDelete: SetNull)
+  exercise    CodeExercise? @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  responses   QuestionResponse[]
+}
+
+model QuizAttempt {
+  id          String    @id @default(cuid())
+  quizId      String
+  userId      String
+  score       Float     @default(0)
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+  quiz        Quiz      @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  responses   QuestionResponse[]
+
+  @@index([userId])
+}
+
+model QuestionResponse {
+  id         String      @id @default(cuid())
+  attemptId  String
+  questionId String
+  answer     String
+  correct    Boolean
+  score      Float
+  feedback   String
+  attempt    QuizAttempt @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question   Question    @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+model Flashcard {
+  id        String   @id @default(cuid())
+  courseId  String
+  conceptId String?
+  front     String
+  back      String
+  createdAt DateTime @default(now())
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  concept   Concept? @relation(fields: [conceptId], references: [id], onDelete: SetNull)
+  reviews   ReviewCard[]
+  logs      ReviewLog[]
+}
+
+/// Per-user FSRS scheduling state for a flashcard.
+model ReviewCard {
+  id            String    @id @default(cuid())
+  userId        String
+  flashcardId   String
+  state         CardState @default(NEW)
+  due           DateTime  @default(now())
+  stability     Float     @default(0)
+  difficulty    Float     @default(0)
+  reps          Int       @default(0)
+  lapses        Int       @default(0)
+  scheduledDays Int       @default(0)
+  lastReview    DateTime?
+  createdAt     DateTime  @default(now())
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flashcard     Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, flashcardId])
+  @@index([userId, due])
+}
+
+model ReviewLog {
+  id          String   @id @default(cuid())
+  userId      String
+  flashcardId String
+  rating      Int
+  state       CardState
+  elapsedDays Float
+  scheduledDays Int
+  reviewedAt  DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  flashcard   Flashcard @relation(fields: [flashcardId], references: [id], onDelete: Cascade)
+
+  @@index([userId, reviewedAt])
+}
+
+/// Bayesian Knowledge Tracing + Elo state per learner and concept.
+model ConceptMastery {
+  id        String   @id @default(cuid())
+  userId    String
+  conceptId String
+  pKnown    Float    @default(0.2)
+  rating    Float    @default(1000)
+  attempts  Int      @default(0)
+  correct   Int      @default(0)
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  concept   Concept  @relation(fields: [conceptId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, conceptId])
+}
+
+model CodeExercise {
+  id          String   @id @default(cuid())
+  courseId    String
+  lessonId    String?
+  title       String
+  prompt      String
+  language    String   @default("javascript")
+  entrypoint  String
+  starterCode String
+  solution    String
+  tests       Json
+  createdAt   DateTime @default(now())
+  course      Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lesson      Lesson?  @relation(fields: [lessonId], references: [id], onDelete: SetNull)
+  submissions CodeSubmission[]
+  questions   Question[]
+}
+
+model CodeSubmission {
+  id         String       @id @default(cuid())
+  userId     String
+  exerciseId String
+  code       String
+  passed     Boolean
+  results    Json
+  hint       String?
+  createdAt  DateTime     @default(now())
+  user       User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercise   CodeExercise @relation(fields: [exerciseId], references: [id], onDelete: Cascade)
+}
+
+model TutorSession {
+  id        String   @id @default(cuid())
+  userId    String
+  courseId  String
+  lessonId  String?
+  title     String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course    Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  messages  TutorMessage[]
+}
+
+model TutorMessage {
+  id        String       @id @default(cuid())
+  sessionId String
+  role      String
+  content   String
+  createdAt DateTime     @default(now())
+  session   TutorSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, createdAt])
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  userId    String
+  badgeKey  String
+  awardedAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, badgeKey])
+}
+
+model XpEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  amount    Int
+  reason    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([createdAt])
+  @@index([userId, createdAt])
+}
+
+model Battle {
+  id        String       @id @default(cuid())
+  courseId  String?
+  playerAId String
+  playerBId String?
+  /// true when player B is the built-in practice bot
+  vsBot     Boolean      @default(false)
+  scoreA    Int          @default(0)
+  scoreB    Int          @default(0)
+  winnerId  String?
+  status    BattleStatus @default(ACTIVE)
+  questions Json
+  createdAt DateTime     @default(now())
+  endedAt   DateTime?
+  playerA   User         @relation("BattlePlayerA", fields: [playerAId], references: [id], onDelete: Cascade)
+  playerB   User?        @relation("BattlePlayerB", fields: [playerBId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id                   String             @id @default(cuid())
+  userId               String             @unique
+  status               SubscriptionStatus @default(NONE)
+  provider             String             @default("mock")
+  customerId           String?            @unique
+  subscriptionId       String?            @unique
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean            @default(false)
+  updatedAt            DateTime           @updatedAt
+  user                 User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+/// Processed billing webhook events (idempotency).
+model BillingEvent {
+  id          String   @id
+  type        String
+  provider    String
+  processedAt DateTime @default(now())
+}
+
+model UsageRecord {
+  id        String   @id @default(cuid())
+  userId    String
+  kind      String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, kind, createdAt])
+}

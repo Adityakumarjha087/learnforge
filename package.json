@@ -1,0 +1,30 @@
+{
+  "name": "learnforge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "LearnForge - AI adaptive learning platform with a Socratic tutor",
+  "workspaces": [
+    "backend",
+    "frontend"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dev": "npm run dev -w backend & npm run dev -w frontend",
+    "lint": "npm run lint -w backend && npm run lint -w frontend",
+    "typecheck": "npm run typecheck -w backend && npm run typecheck -w frontend",
+    "test": "npm run test -w backend && npm run test -w frontend",
+    "test:coverage": "npm run test:coverage -w backend && npm run test:coverage -w frontend",
+    "build": "npm run build -w backend && npm run build -w frontend",
+    "e2e": "npm run e2e -w frontend",
+    "db:up": "docker compose up -d postgres redis",
+    "seed": "npm run seed -w backend"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true
+  }
+}

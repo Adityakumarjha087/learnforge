@@ -1,0 +1,4 @@
+CREATE EXTENSION IF NOT EXISTS vector;
+CREATE DATABASE learnforge_test;
+\c learnforge_test
+CREATE EXTENSION IF NOT EXISTS vector;
