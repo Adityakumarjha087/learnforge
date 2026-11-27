@@ -11,6 +11,18 @@ struggle. Free vs Pro plans meter AI usage.
 It runs **fully offline with zero API keys**: a deterministic fake LLM, a hashing embedder, a WASM code
 sandbox, dev magic-link mailbox and mock billing are the defaults. Real providers are one env var away.
 
+## Live demo
+
+| | |
+|---|---|
+| **App** | [learnforge-two.vercel.app](https://learnforge-two.vercel.app) |
+| **API docs** | [learnforge-api-hyez.onrender.com/api/docs](https://learnforge-api-hyez.onrender.com/api/docs) |
+| **Health** | [learnforge-api-hyez.onrender.com/health](https://learnforge-api-hyez.onrender.com/health) |
+| **Demo login** | `alex@learnforge.dev` / `Password123!` (instructor: `maya@learnforge.dev` / `Password123!`) |
+
+> Hosted on free tiers (Vercel + Render + Neon Postgres). The backend sleeps after 15 minutes idle, so the
+> first request can take about a minute — open the health link first. Demo limits: offline LLM, mock billing; Piston sandbox off, so only JavaScript exercises run.
+
 ## Features
 
 | # | Feature | Status |
