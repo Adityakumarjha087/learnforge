@@ -90,7 +90,7 @@ describe("SandboxService", () => {
 
   it("rejects unsupported languages and oversize code", async () => {
     const jsOnly = new QuickJsRunner();
-    await expect(new SandboxService(jsOnly, null).run("ruby", "x", "f", [])).rejects.toThrow(/not supported/);
+    await expect(new SandboxService(jsOnly, null).run("ruby", "x", "f", [])).rejects.toThrow(/not supported.*Piston sandbox is disabled/);
     await expect(new SandboxService(ok, null).run("js", "x".repeat(20_001), "f", [])).rejects.toThrow(/too long/);
   });
 });

@@ -26,7 +26,8 @@ export class SandboxService {
       }
     }
     if (this.fallback?.supports(language)) return this.fallback.run(language, code, entrypoint, tests);
-    throw badRequest(`Language ${language} is not supported by the configured sandbox`);
+    const hint = this.primary.name === "quickjs-wasm" && !this.fallback ? " (only JavaScript runs in this deployment; the multi-language Piston sandbox is disabled in the demo)" : "";
+    throw badRequest(`Language ${language} is not supported by the configured sandbox${hint}`);
   }
 }
 
